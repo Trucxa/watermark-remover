@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>去水印工具 · Watermark Remover</title>
+    <meta name="description" content="基于 OpenCV.js 的智能图片去水印工具，纯浏览器端处理，隐私安全">
+
+    <!-- Google Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- 样式表 -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- ========== OpenCV 加载遮罩 ========== -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-card">
+            <div class="loading-spinner"></div>
+            <h2>加载引擎中...</h2>
+            <p>正在加载 OpenCV.js 图像处理引擎</p>
+            <div class="loading-bar-wrap">
+                <div class="loading-bar-fill" id="loadingBar"></div>
+            </div>
+            <p class="loading-hint">首次加载约需 5-10 秒</p>
+        </div>
+    </div>
+
+    <!-- ========== 顶部导航栏 ========== -->
+    <header class="navbar">
+        <div class="nav-left">
+            <!-- SVG 橡皮擦 Logo -->
+            <svg class="nav-logo" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect width="32" height="32" rx="9" fill="url(#navGrad)"/>
+                <path d="M8 22.5L13 17L19 23H8V22.5Z" fill="white" opacity="0.4"/>
+                <path d="M10.5 24H22.5" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+                <path d="M14 18L22 10C22.9 9.1 24.2 9.1 25.1 10V10C26 10.9 26 12.2 25.1 13.1L17 21" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M11.5 20.5L14 18" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+                <path d="M19.5 11L23.5 15" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+                <defs>
+                    <linearGradient id="navGrad" x1="0" y1="0" x2="32" y2="32">
+                        <stop offset="0%" stop-color="#6366f1"/>
+                        <stop offset="100%" stop-color="#8b5cf6"/>
+                    </linearGradient>
+                </defs>
+            </svg>
+            <h1 class="nav-title">去水印工具</h1>
+        </div>
+        <div class="nav-right">
+            <span class="nav-badge">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <path d="M6 1v4l2.5 1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                    <circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/>
+                </svg>
+                本地处理 · 不上传服务器
+            </span>
+        </div>
+    </header>
+
+    <!-- ========== 主体内容 ========== -->
+    <main class="main-content">
+
+        <!-- ===== 上传区域 ===== -->
+        <section class="upload-zone" id="uploadZone">
+            <input type="file" id="fileInput" accept="image/*" hidden>
+            <div class="upload-icon-wrap">
+                <svg class="upload-icon" viewBox="0 0 48 48" fill="none">
+                    <rect x="4" y="4" width="40" height="40" rx="12" fill="url(#upGrad)" opacity="0.15"/>
+                    <path d="M24 14V30M24 14L17 21M24 14L31 21" stroke="url(#upGrad)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M12 36H36" stroke="url(#upGrad)" stroke-width="2.5" stroke-linecap="round"/>
+                    <defs>
+                        <linearGradient id="upGrad" x1="4" y1="4" x2="44" y2="44">
+                            <stop offset="0%" stop-color="#818cf8"/>
+                            <stop offset="100%" stop-color="#a78bfa"/>
+                        </linearGradient>
+                    </defs>
+                </svg>
+            </div>
+            <h2 class="upload-title">上传需要处理的图片</h2>
+            <p class="upload-desc">支持 JPG、PNG、WebP 格式 · 拖拽或点击上传</p>
+            <button class="btn btn-primary btn-pill" id="btnSelectFile">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M8 2V11M8 2L4 6M8 2L12 6" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M2 13H14" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                选择图片
+            </button>
+        </section>
+
+        <!-- ===== 编辑器区域 ===== -->
+        <section class="editor-zone hidden" id="editorZone">
+            <div class="editor-layout">
+
+                <!-- 左侧：Canvas 画布 -->
+                <div class="canvas-card">
+                    <div class="canvas-toolbar">
+                        <span class="toolbar-title">画布</span>
+                        <div class="toolbar-badges">
+                            <span class="badge badge-info" id="badgeHint">用画笔涂抹水印区域</span>
+                            <span class="badge badge-success hidden" id="badgeDone">✓ 修复完成</span>
+                        </div>
+                    </div>
+
+                    <!-- 画布容器（支持对比模式） -->
+                    <div class="canvas-container" id="canvasContainer">
+                        <canvas id="mainCanvas"></canvas>
+                        <canvas id="maskCanvas"></canvas>
+
+                        <!-- 前后对比滑块 -->
+                        <div class="compare-slider hidden" id="compareSlider">
+                            <canvas id="originalCanvas"></canvas>
+                            <div class="compare-line" id="compareLine">
+                                <div class="compare-handle">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M5 3L2 8L5 13" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <path d="M11 3L14 8L11 13" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                    </svg>
+                                </div>
+                            </div>
+                            <span class="compare-label left">修复后</span>
+                            <span class="compare-label right">原图</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 右侧：控制面板 -->
+                <div class="panel">
+
+                    <!-- 画笔设置 -->
+                    <div class="card">
+                        <div class="card-title">画笔大小</div>
+                        <div class="card-body">
+                            <div class="brush-row">
+                                <div class="brush-dot" id="brushDot"></div>
+                                <span class="brush-label" id="brushLabel">20px</span>
+                            </div>
+                            <input type="range" id="brushSize" min="5" max="100" value="20" class="range-slider">
+                        </div>
+                    </div>
+
+                    <!-- 算法设置 -->
+                    <div class="card">
+                        <div class="card-title">修复设置</div>
+                        <div class="card-body">
+                            <!-- 算法选择 -->
+                            <label class="setting-label">修复算法</label>
+                            <div class="toggle-group">
+                                <button class="toggle-btn active" data-method="telea">TELEA（推荐）</button>
+                                <button class="toggle-btn" data-method="ns">Navier-Stokes</button>
+                            </div>
+
+                            <!-- 修复半径 -->
+                            <label class="setting-label" style="margin-top:14px;">修复半径</label>
+                            <div class="radius-row">
+                                <input type="range" id="inpaintRadius" min="3" max="20" value="5" class="range-slider">
+                                <span class="radius-value" id="radiusLabel">5</span>
+                            </div>
+                            <p class="setting-hint">半径越大覆盖范围越广，适合大面积水印</p>
+                        </div>
+                    </div>
+
+                    <!-- 操作按钮 -->
+                    <div class="card">
+                        <div class="card-title">操作</div>
+                        <div class="card-body">
+                            <div class="btn-grid">
+                                <button class="btn btn-ghost-danger" id="btnClearMask">
+                                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2.5 2.5L11.5 11.5M11.5 2.5L2.5 11.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                                    清除涂抹
+                                </button>
+                                <button class="btn btn-ghost" id="btnUndo">
+                                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 7h7c1.5 0 2.5 1 2.5 2.5S11.5 12 10 12H7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M5.5 4.5L3 7l2.5 2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                    撤销
+                                </button>
+                                <button class="btn btn-primary btn-full" id="btnProcess">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 14L10 6" stroke="white" stroke-width="1.5" stroke-linecap="round"/><path d="M10 2L14 6L13 7" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="4" r="1" fill="white"/><path d="M5 2V4M2 5H4M11 11V13M13 12H11" stroke="white" stroke-width="1.2" stroke-linecap="round"/></svg>
+                                    智能去除
+                                </button>
+                                <button class="btn btn-compare btn-full hidden" id="btnCompare">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="3" width="14" height="10" rx="2" stroke="currentColor" stroke-width="1.3"/><line x1="8" y1="3" x2="8" y2="13" stroke="currentColor" stroke-width="1.3"/></svg>
+                                    前后对比
+                                </button>
+                                <button class="btn btn-success btn-full hidden" id="btnDownload">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2V11M8 11L4.5 7.5M8 11L11.5 7.5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 13H14" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>
+                                    保存图片
+                                </button>
+                            </div>
+                            <button class="btn btn-ghost btn-full btn-sm" id="btnReset" style="margin-top:10px;">
+                                重新上传图片
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 使用说明 -->
+                    <div class="card">
+                        <div class="card-title">使用说明</div>
+                        <div class="card-body">
+                            <div class="steps">
+                                <div class="step"><span class="step-num">1</span><span class="step-text">用<strong>画笔涂抹</strong>图片上的水印区域</span></div>
+                                <div class="step"><span class="step-num">2</span><span class="step-text">点击<strong>智能去除</strong>，引擎自动修复</span></div>
+                                <div class="step"><span class="step-num">3</span><span class="step-text">可<strong>多次涂抹修复</strong>直到满意</span></div>
+                                <div class="step"><span class="step-num">4</span><span class="step-text">点击<strong>保存图片</strong>下载到本地</span></div>
+                            </div>
+                            <div class="tip-box">
+                                💡 <strong>提示：</strong>涂抹时多覆盖水印边缘，修复半径可根据水印大小调整。
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- ========== 修复进度弹窗 ========== -->
+    <div class="progress-overlay hidden" id="progressOverlay">
+        <div class="progress-card">
+            <div class="progress-spinner"></div>
+            <h3 class="progress-title">正在智能修复...</h3>
+            <p class="progress-text" id="progressText">准备修复数据</p>
+            <div class="progress-bar-wrap">
+                <div class="progress-bar-fill" id="progressBar"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== 底部 ========== -->
+    <footer class="site-footer">
+        <p>基于 <strong>OpenCV.js</strong> 的智能图像修复引擎 · 纯浏览器端处理，隐私安全</p>
+    </footer>
+
+    <!-- OpenCV.js 从 CDN 加载 -->
+    <script async src="https://docs.opencv.org/4.9.0/opencv.js" onload="onOpenCVReady()" id="opencvScript"></script>
+
+    <!-- 应用脚本 -->
+    <script src="inpaint.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
