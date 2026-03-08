@@ -231,8 +231,64 @@
         <p>基于 <strong>OpenCV.js</strong> 的智能图像修复引擎 · 纯浏览器端处理，隐私安全</p>
     </footer>
 
-    <!-- OpenCV.js 从 CDN 加载 -->
-    <script async src="https://docs.opencv.org/4.9.0/opencv.js" onload="onOpenCVReady()" id="opencvScript"></script>
+    <!-- OpenCV.js 多源加载（国内 CDN 优先） -->
+    <script>
+        // 多个 CDN 源，按优先级依次尝试（国内可访问的在前）
+        const OPENCV_SOURCES = [
+            'https://cdn.jsdelivr.net/npm/opencv.js@1.2.1/opencv.js',
+            'https://fastly.jsdelivr.net/npm/opencv.js@1.2.1/opencv.js',
+            'https://docs.opencv.org/4.9.0/opencv.js'
+        ];
+
+        let sourceIndex = 0;
+
+        function tryLoadOpenCV() {
+            if (sourceIndex >= OPENCV_SOURCES.length) {
+                // 所有源都失败
+                const overlay = document.getElementById('loadingOverlay');
+                if (overlay) {
+                    overlay.querySelector('h2').textContent = '加载失败';
+                    overlay.querySelector('p').textContent = '无法加载图像处理引擎，请检查网络后刷新页面';
+                    overlay.querySelector('.loading-spinner').style.display = 'none';
+                }
+                return;
+            }
+
+            const script = document.createElement('script');
+            script.src = OPENCV_SOURCES[sourceIndex];
+            script.async = true;
+            script.onload = function () {
+                // opencv.js 加载成功后会自动初始化，通过 Module 回调触发
+                // 部分版本需要手动检测
+                if (typeof cv !== 'undefined') {
+                    if (cv.Mat) {
+                        onOpenCVReady();
+                    } else if (cv.onRuntimeInitialized) {
+                        cv.onRuntimeInitialized = onOpenCVReady;
+                    } else {
+                        // 等待 WASM 初始化完成
+                        const check = setInterval(() => {
+                            if (typeof cv !== 'undefined' && cv.Mat) {
+                                clearInterval(check);
+                                onOpenCVReady();
+                            }
+                        }, 100);
+                        // 最多等 30 秒
+                        setTimeout(() => clearInterval(check), 30000);
+                    }
+                }
+            };
+            script.onerror = function () {
+                console.warn('[OpenCV] 加载失败:', OPENCV_SOURCES[sourceIndex]);
+                sourceIndex++;
+                tryLoadOpenCV(); // 尝试下一个源
+            };
+            document.body.appendChild(script);
+        }
+
+        // 启动加载
+        tryLoadOpenCV();
+    </script>
 
     <!-- 应用脚本 -->
     <script src="inpaint.js"></script>
